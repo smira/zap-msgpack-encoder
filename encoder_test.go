@@ -109,7 +109,7 @@ func TestEncodeEntry(t *testing.T) {
 					"so":   "passes",
 					"arr1": []interface{}{},
 					"arr2": []interface{}{false, true, int8(34)},
-					"arr3": []interface{}{"foo", 5.0, []interface{}{3.0, uint16(45678)}},
+					"arr3": []interface{}{"foo", 5.0, []interface{}{3.0, uint16(45678)}, map[string]interface{}{"x": uint16(3344)}},
 					"ints": []interface{}{int16(1), int16(2), int16(3)},
 					"bss":  []interface{}{"\x01\x02"},
 				},
@@ -137,6 +137,10 @@ func TestEncodeEntry(t *testing.T) {
 						arrr.AppendUint(45678)
 						return nil
 					}))
+					_ = arr.AppendObject(zapcore.ObjectMarshalerFunc(func(obj zapcore.ObjectEncoder) error {
+						obj.AddUint16("x", 3344)
+						return nil
+					}))
 					return nil
 				})),
 				zap.String("so", "passes"),
@@ -149,10 +153,23 @@ func TestEncodeEntry(t *testing.T) {
 			expected: []interface{}{
 				&ts,
 				map[string]interface{}{
-					"L": "debug",
-					"T": &ts,
-					"M": "",
-					"d": 0.5,
+					"L":    "debug",
+					"T":    &ts,
+					"M":    "",
+					"d":    0.5,
+					"obj1": map[string]interface{}{},
+					"obj2": map[string]interface{}{
+						"bits": []byte{0, 1, 2, 3},
+						"why":  true,
+						"bs":   "",
+						"f":    float32(3.5),
+						"oo": map[string]interface{}{
+							"x":  int32(123456789),
+							"y":  int16(-345),
+							"z":  int16(-1),
+							"zz": int8(0),
+						},
+					},
 				},
 			},
 			ent: zapcore.Entry{
@@ -161,6 +178,23 @@ func TestEncodeEntry(t *testing.T) {
 			},
 			fields: []zapcore.Field{
 				zap.Duration("d", 500*time.Millisecond),
+				zap.Object("obj1", zapcore.ObjectMarshalerFunc(func(obj zapcore.ObjectEncoder) error {
+					return nil
+				})),
+				zap.Object("obj2", zapcore.ObjectMarshalerFunc(func(obj zapcore.ObjectEncoder) error {
+					obj.AddBinary("bits", []byte{0, 1, 2, 3})
+					obj.AddBool("why", true)
+					obj.AddByteString("bs", []byte{})
+					obj.AddFloat32("f", 3.5)
+					_ = obj.AddObject("oo", zapcore.ObjectMarshalerFunc(func(oobj zapcore.ObjectEncoder) error {
+						oobj.AddInt("y", -345)
+						oobj.AddInt32("x", 123456789)
+						oobj.AddInt16("z", -1)
+						oobj.AddInt8("zz", 0)
+						return nil
+					}))
+					return nil
+				})),
 			},
 		},
 	}
