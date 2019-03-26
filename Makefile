@@ -1,4 +1,4 @@
-all: test lint
+all: test lint bench
 
 .PHONY: test
 test:
@@ -7,3 +7,7 @@ test:
 .PHONY: lint
 lint:
 	golangci-lint run
+
+.PHONY: bench
+bench:
+	go test -v -run=nothing -bench=. -benchmem .

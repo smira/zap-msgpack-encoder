@@ -21,6 +21,7 @@
 package zapmsgpack
 
 import (
+	"bytes"
 	"sync"
 
 	"github.com/vmihailenco/msgpack"
@@ -28,10 +29,12 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+const initialSize = 1024
+
 type encoder struct {
 	*zapcore.EncoderConfig
 
-	buf      *buffer.Buffer
+	buf      *bytes.Buffer
 	enc      *msgpack.Encoder
 	mapSize  int
 	sliceLen int
@@ -42,7 +45,13 @@ var bufPool = buffer.NewPool()
 
 var encoderPool = sync.Pool{
 	New: func() interface{} {
-		return &encoder{}
+		enc := &encoder{
+			buf: bytes.NewBuffer(make([]byte, 0, initialSize)),
+		}
+
+		enc.enc = msgpack.NewEncoder(enc.buf)
+
+		return enc
 	},
 }
 
@@ -51,8 +60,8 @@ func getEncoder() *encoder {
 }
 
 func putEncoder(enc *encoder) {
-	enc.buf = nil
-	enc.enc = nil
+	enc.buf.Reset()
+	enc.EncoderConfig = nil
 	enc.mapSize = 0
 	enc.sliceLen = 0
 	enc.nsPrefix = ""
@@ -65,13 +74,10 @@ func putEncoder(enc *encoder) {
 // Msgpack encoder could be used e.g. while delivering go.uber.org/zap logs
 // to fluentd destination.
 func NewEncoder(cfg zapcore.EncoderConfig) zapcore.Encoder {
-	buf := bufPool.Get()
+	enc := getEncoder()
+	enc.EncoderConfig = &cfg
 
-	return &encoder{
-		EncoderConfig: &cfg,
-		buf:           buf,
-		enc:           msgpack.NewEncoder(buf),
-	}
+	return enc
 }
 
 func (enc *encoder) encodeKey(key string) {
@@ -92,7 +98,6 @@ func (enc *encoder) encodeArray(arr zapcore.ArrayMarshaler) error {
 		return err
 	}
 
-	sliceEnc.buf.Free()
 	putEncoder(sliceEnc)
 
 	return nil
@@ -112,7 +117,6 @@ func (enc *encoder) encodeObject(obj zapcore.ObjectMarshaler) error {
 		return err
 	}
 
-	mapEnc.buf.Free()
 	putEncoder(mapEnc)
 
 	return nil
@@ -128,8 +132,6 @@ func (enc *encoder) OpenNamespace(key string) {
 func (enc *encoder) clone() *encoder {
 	clone := getEncoder()
 	clone.EncoderConfig = enc.EncoderConfig
-	clone.buf = bufPool.Get()
-	clone.enc = msgpack.NewEncoder(clone.buf)
 
 	return clone
 }
@@ -220,11 +222,11 @@ func (enc *encoder) EncodeEntry(ent zapcore.Entry, fields []zapcore.Field) (*buf
 
 	_ = finenc.enc.EncodeMapLen(final.mapSize)
 	_, _ = finenc.buf.Write(final.buf.Bytes())
-	final.buf.Free()
+
+	buf := bufPool.Get()
+	_, _ = buf.Write(finenc.buf.Bytes())
 
 	putEncoder(final)
-
-	buf := finenc.buf
 	putEncoder(finenc)
 
 	return buf, nil
